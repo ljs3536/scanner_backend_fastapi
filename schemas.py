@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
-
+from typing import Optional
 # 회원가입 시 프론트엔드에서 받아올 데이터
 class UserCreate(BaseModel):
     user_id: str
@@ -17,3 +17,26 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True  # SQLAlchemy 모델을 Pydantic 모델로 자동 변환
+
+
+class ScanHistoryResponse(BaseModel):
+    scan_seq: int
+    scan_id: str
+    user_seq: int
+    target_name: str
+    status: str
+    duration_ms: int
+    issues_count: int
+    scan_date: datetime
+    
+    # 💡 데이터가 없을 수도 있는(None 허용) 필드들은 Optional[str] 처리
+    summary: Optional[str] = None
+    framework_detected: Optional[str] = None
+    analyzers_used: Optional[str] = None
+    sbom_id: Optional[str] = None
+    sbom_cyclonedx_json: Optional[str] = None
+    sbom_summary: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+    

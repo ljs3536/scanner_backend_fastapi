@@ -1,14 +1,15 @@
 import uuid
 import httpx
 from typing import List, Optional
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from database import get_db
+from database import get_db, SessionLocal
 import models
 from dependencies import get_current_user
 import random
 import json
 from core.config import settings
+import schemas
 router = APIRouter(
     prefix="/api/scans",
     tags=["Scans"]
@@ -24,6 +25,18 @@ MOCK_VULNERABILITIES = [
     {"title": "안전하지 않은 해시 알고리즘", "severity": "LOW", "cwe": "CWE-327", "rule": "java.security.WeakHash", "file": "src/main/java/com/demo/utils/HashUtil.java", "desc": "MD5 또는 SHA-1과 같은 취약한 해시 알고리즘을 사용하고 있습니다."},
     {"title": "디버그 모드 활성화", "severity": "INFO", "cwe": "CWE-489", "rule": "config.debug.Enabled", "file": "src/main/java/com/demo/Application.java", "desc": "상용 환경에서 디버그 모드가 활성화되어 있어 내부 정보가 유출될 수 있습니다."}
 ]
+
+@router.get("/history", response_model=List[schemas.ScanHistoryResponse])
+def get_scan_history(
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    # 현재 로그인한 사용자의 스캔 이력을 최신순으로 조회
+    scans = db.query(models.ScanHistory)\
+              .filter(models.ScanHistory.user_seq == current_user.user_seq)\
+              .order_by(models.ScanHistory.scan_date.desc())\
+              .all()
+    return scans
 
 @router.post("/run")
 async def run_mock_scan(target_name: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -135,10 +148,32 @@ async def run_real_file_scan(
         "issues_found": new_scan.issues_count
     }
 
+async def sync_sbom_threats(sbom_id: str, scan_seq: int):
+    """배경에서 분석기의 SBOM 위협(Threats) 정보를 가져와 DB를 업데이트합니다."""
+    # 배경 작업은 별도의 DB 세션을 열고 닫아야 안전합니다.
+    db = SessionLocal()
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(f"{ANALYZER_BASE_URL}/api/v1/sbom/{sbom_id}/threats")
+            
+            if response.status_code == 200:
+                threats_data = response.json()
+                
+                # DB 업데이트
+                scan = db.query(models.ScanHistory).filter(models.ScanHistory.scan_seq == scan_seq).first()
+                if scan:
+                    # 안전하게 JSON 문자열로 변환하여 저장
+                    scan.sbom_threats = json.dumps(threats_data, ensure_ascii=False)
+                    db.commit()
+    except Exception as e:
+        print(f"Background Task Error (SBOM Threats Sync): {e}")
+    finally:
+        db.close()
 
 @router.post("/run-upload")
 async def run_multiple_files_scan(
     # 프론트엔드에서 넘어오는 다중 파일 및 옵션들
+    background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
     llm_advisory: bool = Form(False),
     generate_sbom: bool = Form(False),
@@ -173,7 +208,7 @@ async def run_multiple_files_scan(
             )
             response.raise_for_status()
             scan_result = response.json()
-            
+            #print(scan_result)
     except httpx.RequestError as e:
         raise HTTPException(status_code=500, detail=f"분석기 엔진과 통신할 수 없습니다: {str(e)}")
 
@@ -222,6 +257,7 @@ async def run_multiple_files_scan(
 
     # 개별 취약점(Issues) 저장 로직은 이전과 동일
     for issue_data in scan_result.get("issues", []):
+        #print(issue_data)
         new_issue = models.Issue(
             issue_id=issue_data.get("id", f"ISSUE-{uuid.uuid4().hex[:8].upper()}"),
             scan_seq=new_scan.scan_seq,
@@ -238,6 +274,13 @@ async def run_multiple_files_scan(
         db.add(new_issue)
     
     db.commit()
+
+    if new_scan.sbom_id:
+        background_tasks.add_task(
+            sync_sbom_threats, 
+            new_scan.sbom_id, 
+            new_scan.scan_seq
+        )
 
     return {
         "message": "다중 파일 스캔이 완료되었습니다.",

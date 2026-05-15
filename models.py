@@ -42,7 +42,7 @@ class ScanHistory(Base):
     sbom_summary = Column(Text, nullable=True)
     sbom_status = Column(String(50), nullable=True)
     sbom_error = Column(Text, nullable=True)
-    
+    sbom_threats = Column(JSON, nullable=True)
     # 컨텍스트 관련
     source_kind = Column(String(50), nullable=True)
     analysis_scope = Column(String(50), nullable=True)
