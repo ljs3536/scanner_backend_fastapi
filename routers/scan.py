@@ -10,6 +10,8 @@ import random
 import json
 from core.config import settings
 import schemas
+from pydantic import BaseModel
+
 router = APIRouter(
     prefix="/api/scans",
     tags=["Scans"]
@@ -236,6 +238,10 @@ async def run_multiple_files_scan(
         llm_verification=safe_json(scan_result.get("llm_verification")),
         llm_fp_advisory=safe_json(scan_result.get("llm_fp_advisory")),
         
+        # 신규 자산 정보 매핑
+        source_ip=scan_result.get("source_ip"),
+        source_user_agent=scan_result.get("source_user_agent"),
+
         # SBOM 데이터 (이게 핵심!)
         sbom_id=scan_result.get("sbom_id"),
         sbom_cyclonedx_json=safe_json(scan_result.get("sbom_cyclonedx_json")),
@@ -269,7 +275,20 @@ async def run_multiple_files_scan(
             cwe_id=issue_data.get("cwe"),
             owasp_id=issue_data.get("owasp"),
             file_path=issue_data.get("file"),
-            line_number=issue_data.get("line")
+            line_number=issue_data.get("line"),
+
+            column=issue_data.get("column", 1),
+            analyzer=issue_data.get("analyzer"),
+            code_snippet=issue_data.get("code_snippet"),
+            recommendation=issue_data.get("recommendation"),
+            language=issue_data.get("language"),
+            
+            # 한국어 최적화 및 조치 가이드 데이터
+            type_ko=issue_data.get("type_ko"),
+            severity_ko=issue_data.get("severity_ko"),
+            detection_reason_ko=issue_data.get("detection_reason_ko"),
+            fix_description_ko=issue_data.get("fix_description_ko"),
+            fix_code=issue_data.get("fix_code")
         )
         db.add(new_issue)
     
@@ -286,4 +305,175 @@ async def run_multiple_files_scan(
         "message": "다중 파일 스캔이 완료되었습니다.",
         "scan_id": new_scan.scan_id,
         "issues_found": new_scan.issues_count
+    }
+
+class CodeScanRequest(BaseModel):
+    code: str
+    filename: str
+    profile: Optional[str] = "security_core"
+
+
+@router.post("/run-code")
+async def run_code_snippet_scan(
+    payload: CodeScanRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # 1. 코어 분석기 엔진의 코드 스캔 API 스펙에 맞춰 데이터 구성
+    analyzer_payload = {
+        "code": payload.code,
+        "filename": payload.filename,
+        "profile": payload.profile
+    }
+
+    try:
+        # 2. 진짜 분석기 엔진의 /code 엔드포인트 호출
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{ANALYZER_BASE_URL}/api/v1/scan/code",
+                json=analyzer_payload
+            )
+            response.raise_for_status()
+            scan_result = response.json() # 분석기가 리턴한 ScanResult 딕셔너리
+            
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"분석기 엔진과 통신할 수 없습니다: {str(e)}")
+
+    # 💡 안전한 JSON 문자열 변환 헬퍼 (이전 구현 연동)
+    def safe_json(data):
+        if data is None: return None
+        return json.dumps(data, ensure_ascii=False) if not isinstance(data, str) else data
+
+    # 3. 분석기 결과를 우리 MariaDB 스키마(scan_histories)에 매핑하여 저장
+    new_scan = models.ScanHistory(
+        scan_id=scan_result.get("scan_id"),
+        user_seq=current_user.user_seq,
+        target_name=scan_result.get("target", payload.filename),
+        status=scan_result.get("status", "COMPLETED").upper(),
+        duration_ms=int(scan_result.get("duration_ms", 0)),
+        issues_count=scan_result.get("issues_count", 0),
+        
+        # 신규 자산 정보 매핑
+        source_ip=scan_result.get("source_ip"),
+        source_user_agent=scan_result.get("source_user_agent"),
+
+        # 가공 정보들을 safe_json으로 변환하여 유실 없이 적재
+        summary=safe_json(scan_result.get("summary")),
+        analyzers_used=safe_json(scan_result.get("analyzers_used")),
+        llm_verification=safe_json(scan_result.get("llm_verification")),
+        llm_fp_advisory=safe_json(scan_result.get("llm_fp_advisory")),
+        
+        # 코드 스캔은 오픈소스 종속성 검사(SBOM)가 없으므로 NULL 데이터로 채워짐
+        sbom_id=None,
+        source_kind=scan_result.get("source_kind", "code_scan"),
+        analysis_scope=scan_result.get("analysis_scope", "snippet"),
+        project_context_applied=scan_result.get("project_context_applied", False),
+        profile=scan_result.get("profile", payload.profile)
+    )
+    db.add(new_scan)
+    db.commit()
+    db.refresh(new_scan)
+
+    # 4. 발견된 취약점(Issues) 리스트 파싱 및 데이터 적재
+    for issue_data in scan_result.get("issues", []):
+        new_issue = models.Issue(
+            issue_id=issue_data.get("id", f"ISSUE-{uuid.uuid4().hex[:8].upper()}"),
+            scan_seq=new_scan.scan_seq,
+            issue_title=issue_data.get("type"),
+            severity=issue_data.get("severity"),
+            confidence=issue_data.get("confidence"),
+            description=issue_data.get("message"),
+            rule_id=issue_data.get("rule_id"),
+            cwe_id=issue_data.get("cwe"),
+            owasp_id=issue_data.get("owasp"),
+            file_path=issue_data.get("file", payload.filename),
+            line_number=issue_data.get("line", 1),
+
+            column=issue_data.get("column", 1),
+            analyzer=issue_data.get("analyzer"),
+            code_snippet=issue_data.get("code_snippet"),
+            recommendation=issue_data.get("recommendation"),
+            language=issue_data.get("language"),
+            
+            # 한국어 최적화 및 조치 가이드 데이터
+            type_ko=issue_data.get("type_ko"),
+            severity_ko=issue_data.get("severity_ko"),
+            detection_reason_ko=issue_data.get("detection_reason_ko"),
+            fix_description_ko=issue_data.get("fix_description_ko"),
+            fix_code=issue_data.get("fix_code")
+        )
+        db.add(new_issue)
+    
+    db.commit()
+
+    return {
+        "message": "코드 조각 스캔이 완료되었습니다.",
+        "scan_id": new_scan.scan_id,
+        "issues_found": new_scan.issues_count
+    }
+
+@router.get("/report/{scan_id}")
+async def get_scan_report(
+    scan_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # 1. 스캔 마스터 기록 조회
+    scan = db.query(models.ScanHistory).filter(models.ScanHistory.scan_id == scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="해당 스캔 기록을 찾을 수 없습니다.")
+    
+    # 보안 정책: 본인의 스캔 기록만 볼 수 있도록 검증
+    if scan.user_seq != current_user.user_seq:
+        raise HTTPException(status_code=403, detail="해당 리포트에 접근할 권한이 없습니다.")
+
+    # 2. 해당 스캔에 매핑된 상세 취약점(Issues) 목록 조회
+    issues = db.query(models.Issue).filter(models.Issue.scan_seq == scan.scan_seq).all()
+
+    # 3. 프론트엔드가 차트 및 통계를 바로 그릴 수 있도록 심각도별 카운트 미리 계산 (Aggregating)
+    severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+    for issue in issues:
+        sev = issue.severity.upper() if issue.severity else "INFO"
+        if sev in severity_counts:
+            severity_counts[sev] += 1
+
+    return {
+        "metadata": {
+            "scan_id": scan.scan_id,
+            "target_name": scan.target_name,
+            "status": scan.status,
+            "duration_ms": scan.duration_ms,
+            "issues_count": scan.issues_count,
+            "framework_detected": scan.framework_detected,
+            "scan_date": scan.scan_date,
+            "profile": scan.profile,
+            "source_kind": scan.source_kind,
+            "source_ip": scan.source_ip,
+            "source_user_agent": scan.source_user_agent
+        },
+        "severity_totals": severity_counts,
+        "issues": [
+            {
+                "issue_id": issue.issue_id,
+                "issue_title": issue.issue_title,
+                "severity": issue.severity,
+                "confidence": issue.confidence,
+                "description": issue.description,
+                "rule_id": issue.rule_id,
+                "cwe_id": issue.cwe_id,
+                "owasp_id": issue.owasp_id,
+                "file_path": issue.file_path,
+                "line_number": issue.line_number,
+                "column": issue.column,
+                "analyzer": issue.analyzer,
+                "code_snippet": issue.code_snippet,
+                "recommendation": issue.recommendation,
+                "language": issue.language,
+                "type_ko": issue.type_ko,
+                "severity_ko": issue.severity_ko,
+                "detection_reason_ko": issue.detection_reason_ko,
+                "fix_description_ko": issue.fix_description_ko,
+                "fix_code": issue.fix_code
+            } for issue in issues
+        ]
     }

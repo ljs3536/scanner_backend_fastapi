@@ -51,6 +51,9 @@ class ScanHistory(Base):
     project_context_root = Column(Text, nullable=True)
     profile = Column(String(50), nullable=True)
 
+    source_ip = Column(String(50), nullable=True)
+    source_user_agent = Column(String(255), nullable=True)
+
     # 릴레이션
     user = relationship("User", back_populates="scans")
     issues = relationship("Issue", back_populates="scan", cascade="all, delete-orphan")
@@ -71,5 +74,18 @@ class Issue(Base):
     file_path = Column(String(500), nullable=False)
     line_number = Column(Integer)
 
+    column = Column(Integer, nullable=True)
+    analyzer = Column(String(50), nullable=True)
+    code_snippet = Column(Text, nullable=True)
+    recommendation = Column(Text, nullable=True)
+    language = Column(String(50), nullable=True)
+    
+    # 한국어 서비스 패치용 필드
+    type_ko = Column(String(255), nullable=True)
+    severity_ko = Column(String(50), nullable=True)
+    detection_reason_ko = Column(Text, nullable=True)
+    fix_description_ko = Column(Text, nullable=True)
+    fix_code = Column(Text, nullable=True)
+    
     # 릴레이션
     scan = relationship("ScanHistory", back_populates="issues")
