@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware # 추가!
-from routers import auth, scan, sbom, llm
+from routers import auth, scan, sbom, llm, admin
 import models
 from database import engine
 
@@ -22,6 +22,7 @@ app.include_router(auth.router)
 app.include_router(scan.router)
 app.include_router(sbom.router)
 app.include_router(llm.router)
+app.include_router(admin.router)
 
 @app.get("/")
 def read_root():
