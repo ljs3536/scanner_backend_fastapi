@@ -45,7 +45,7 @@ async def create_new_user_by_admin(payload: schemas.UserCreateByAdmin, db: Sessi
     new_user = models.User(
         email=payload.email,
         user_id=payload.user_id,
-        hashed_password=hashed_pwd,
+        password=hashed_pwd,
         role=payload.role.upper()  # USER or ADMIN
     )
     
@@ -54,7 +54,7 @@ async def create_new_user_by_admin(payload: schemas.UserCreateByAdmin, db: Sessi
     db.refresh(new_user)
 
     return {
-        "message": f"성공적으로 '{new_user.name}' 계정이 생성되었습니다.",
+        "message": f"성공적으로 '{new_user.user_id}' 계정이 생성되었습니다.",
         "email": new_user.email,
         "role": new_user.role
     }

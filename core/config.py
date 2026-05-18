@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     secret_key: str
     algorithm: str
 
+    openai_api_key: str
     analyzer_base_url: str
     class Config:
         env_file = ".env" # 이 클래스가 실행될 때 .env 파일을 읽어오라고 지시

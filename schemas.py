@@ -43,7 +43,7 @@ class ScanHistoryResponse(BaseModel):
 # 관리자가 새로운 유저를 생성할 때 받을 요청 바디
 class UserCreateByAdmin(BaseModel):
     email: EmailStr
-    name: str
+    user_id: str
     password: str
     role: str = "USER"  # "USER" 또는 "ADMIN"
     
