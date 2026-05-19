@@ -10,6 +10,9 @@ class Settings(BaseSettings):
 
     openai_api_key: str
     analyzer_base_url: str
+
+    ai_rate_limit: str 
+
     class Config:
         env_file = ".env" # 이 클래스가 실행될 때 .env 파일을 읽어오라고 지시
 

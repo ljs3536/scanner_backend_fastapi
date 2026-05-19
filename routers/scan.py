@@ -454,6 +454,7 @@ async def get_scan_report(
         "severity_totals": severity_counts,
         "issues": [
             {
+                "issue_seq": issue.issue_seq,
                 "issue_id": issue.issue_id,
                 "issue_title": issue.issue_title,
                 "severity": issue.severity,

@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float, Text, ForeignKey, JSON, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Float, Text, ForeignKey, JSON, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 from database import Base
 from datetime import datetime
 
@@ -89,3 +90,19 @@ class Issue(Base):
     
     # 릴레이션
     scan = relationship("ScanHistory", back_populates="issues")
+
+
+class IssueAiResponse(Base):
+    __tablename__ = "issue_ai_responses"
+
+    cache_seq = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    issue_seq = Column(Integer, ForeignKey("issues.issue_seq", ondelete="CASCADE"), nullable=False)
+    provider = Column(String(50), nullable=False)   # 'openai', 'core'
+    task_type = Column(String(50), nullable=False)  # 'explain', 'fix'
+    response_text = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+    # 💡 복합 유니크 제약조건 설정
+    __table_args__ = (
+        UniqueConstraint('issue_seq', 'provider', 'task_type', name='_issue_provider_task_uc'),
+    )
