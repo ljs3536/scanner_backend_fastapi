@@ -140,7 +140,7 @@ async def openai_vulnerability_fix(
     # 2️[Cache Hit] 존재하면 즉시 반환
     if cached_data:
         print(f">>> 💾 [Cache Hit] Issue {payload.issue_seq}의 패치 코드가 DB에서 바로 반환됩니다.")
-        return {"explanation": cached_data.response_text}
+        return {"fix_code": cached_data.response_text}
 
     # 3️[Cache Miss] OpenAI 호출
     # [Cache Miss] OpenAI를 진짜 호출해야 하므로, 여기서 수동으로 Rate Limit 검사!
@@ -187,7 +187,7 @@ async def openai_vulnerability_fix(
         db.add(new_cache)
         db.commit()
 
-        return {"explanation": ai_content}
+        return {"fix_code": ai_content}
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OpenAI 패치 생성 오류: {str(e)}")
