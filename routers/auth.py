@@ -45,7 +45,7 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 @router.post("/login")
 def login(user_credentials: schemas.UserCreate, db: Session = Depends(get_db)):
     # 1. 유저 존재 확인
-    user = db.query(models.User).filter(models.User.user_id == user_credentials.user_id).first()
+    user = db.query(models.User).filter(models.User.user_id == user_credentials.userId).first()
     if not user:
         raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 잘못되었습니다.")
 

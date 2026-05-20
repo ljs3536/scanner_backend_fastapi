@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 # 회원가입 시 프론트엔드에서 받아올 데이터
 class UserCreate(BaseModel):
-    user_id: str
+    userId: str
     email: EmailStr  # 자동으로 이메일 형식(aa@bb.com)인지 검증해 줍니다
     password: str = Field(..., max_length=50)
 
