@@ -11,7 +11,7 @@ app = FastAPI(title="Scanner Demo API")
 # --- CORS 설정 ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://192.168.1.103:3000"], 
+    allow_origins=["http://localhost:3000", "http://192.168.1.103:3000", "http://localhost:3010"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
